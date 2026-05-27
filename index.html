@@ -742,6 +742,38 @@ canvas.line-chart { width:100%; height:100%; }
 }
 
 .cal-day.cal-sel{outline:2px solid var(--red);background:rgba(184,48,74,.06);}
+
+/* Love message overlay */
+.love-msg-overlay {
+  position:fixed;inset:0;z-index:400;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(184,48,74,.08);
+  opacity:0;pointer-events:none;transition:opacity .3s;
+}
+.love-msg-overlay.show{opacity:1;pointer-events:all;}
+.love-msg-card {
+  background:var(--cream);border:1.5px solid var(--bdr);
+  padding:32px 26px;max-width:320px;width:92%;
+  animation:lovePop .4s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes lovePop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+.lm-from {
+  font-size:9px;text-transform:uppercase;letter-spacing:2px;
+  color:var(--red);margin-bottom:14px;
+}
+.lm-text {
+  font-family:'Playfair Display',serif;font-size:15px;font-style:italic;
+  color:var(--ink);line-height:1.85;margin-bottom:20px;
+}
+.lm-close {
+  width:100%;padding:13px;background:var(--ink);color:var(--cream);
+  border:none;font-family:'Instrument Sans',sans-serif;
+  font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;
+  cursor:pointer;transition:background .18s;
+}
+.lm-close:hover{background:var(--red);}
+
+.ps-item.ps-logged{background:rgba(74,122,90,.15);color:var(--sage);border-color:rgba(74,122,90,.3);}
 </style>
 </head>
 <body>
@@ -1193,6 +1225,15 @@ canvas.line-chart { width:100%; height:100%; }
 
   <button class="sh-btn" onclick="saveEntry()">Speichern</button>
 </div>
+</div>
+
+<!-- LOVE MESSAGE — appears on nick long press -->
+<div class="love-msg-overlay" id="loveMsgOverlay" onclick="closeLoveMsg(event)">
+  <div class="love-msg-card">
+    <div class="lm-from">Für dich ❤️</div>
+    <div class="lm-text">Hey Baby aka min absolute klini lieblings Dömpling ❤️<br><br>Primär — I miss you. Di Lache, dini strahlende Auge, dini Wärmii.. alles. And I love you a lot.<br><br>Ich freu mich scho wemmer wieder zemme jensti Art vo Sport mache könnd 😄<br><br>Ich lieb dich mit mim kleine Herz :D Kiss? 🥺</div>
+    <button class="lm-close" onclick="closeLoveMsg()">❤️</button>
+  </div>
 </div>
 
 <div id="flame-ov" onclick="closeFlame()">
@@ -2145,13 +2186,23 @@ function renderPlan(){
 }
 
 function renderPlanContent(wk){
-  // Physio sidebar
+  // Physio sidebar — show physio LOG entries for current week
   const physioStrip=document.getElementById('physioStrip');
   const physioItems=document.getElementById('physioItems');
-  const pEx=profile?.physioEx||[];
-  if(pEx.length){
+  // Get unique physio exercises logged this week
+  const physioLogged=[...new Set(
+    entries.filter(e=>e.cat==='physio'&&parseInt(e.wk||1)===wk)
+           .map(e=>e.ex)
+  )];
+  // Also include onboarding physio if not yet logged
+  const obPhysio=(profile?.physioEx||[]).map(e=>e.name||e);
+  const allPhysio=[...new Set([...physioLogged,...obPhysio])];
+  if(allPhysio.length){
     physioStrip.style.display='block';
-    physioItems.innerHTML=pEx.map(e=>`<span class="ps-item">${e.name||e}</span>`).join('');
+    physioItems.innerHTML=allPhysio.map(ex=>{
+      const logged=physioLogged.includes(ex);
+      return `<span class="ps-item${logged?' ps-logged':''}" title="${logged?'Diese Woche gemacht':'Noch nicht gemacht'}">${ex}${logged?' ✓':''}</span>`;
+    }).join('');
   } else { physioStrip.style.display='none'; }
 
   const pWks=periodWeeks();
@@ -2301,8 +2352,22 @@ const TRIGGER_LABELS = {
 };
 
 let nickPressTimer = null;
-function startNickPress(){ nickPressTimer = setTimeout(()=>openSecretEditor(), 1500); }
+let _loveShown = false;
+function startNickPress(){
+  _loveShown = false;
+  // 600ms → love message
+  nickPressTimer = setTimeout(()=>{
+    _loveShown = true;
+    document.getElementById('loveMsgOverlay').classList.add('show');
+    // 1500ms → secret editor
+    nickPressTimer = setTimeout(()=>openSecretEditor(), 900);
+  }, 600);
+}
 function endNickPress(){ clearTimeout(nickPressTimer); }
+function closeLoveMsg(e){
+  if(e && e.target !== document.getElementById('loveMsgOverlay')) return;
+  document.getElementById('loveMsgOverlay').classList.remove('show');
+}
 
 function openSecretEditor(){
   document.getElementById('secretEditor').classList.add('open');
@@ -2607,7 +2672,7 @@ function renderLog(){
   const el=document.getElementById('logList');
   let filtered=logFilter==='all'?entries:entries.filter(e=>(e.cat||'gym')===logFilter);
   if(!filtered.length){
-    const msgs={all:'Noch kein Eintrag. Dein erstes Training wartet.',gym:'Noch kein Gym-Eintrag.',physio:'Noch kein Physio-Eintrag.',core:'Noch kein Bauch-Eintrag.'};
+    const msgs={all:'Noch kein Eintrag. Dein erstes Training wartet.',gym:'Noch kein Gym-Eintrag.',physio:'Noch kein Physio-Eintrag — Physio-Einträge erscheinen automatisch im Plan-Tab.',core:'Noch kein Bauch-Eintrag.'};
     el.innerHTML=`<div class="empty-msg"><p>${msgs[logFilter]||msgs.all}</p></div>`; return;
   }
   const catLabel={gym:'Gym',physio:'Physio',core:'Bauch'};
@@ -2717,7 +2782,7 @@ if(profile){
     document.getElementById('OB').classList.remove('active');
     document.getElementById('APP').classList.add('active');
     skipBtn.remove();
-    boot();
+    try{ boot(); }catch(e){ location.reload(); }
   };
   document.body.appendChild(skipBtn);
 }
